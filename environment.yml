@@ -1,0 +1,25 @@
+name: my_env
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - geopandas
+  - rioxarray
+  - xarray
+  - numpy
+  - scipy
+  - scikit-learn
+  - pytorch
+  - optuna
+  - matplotlib
+  - rasterio
+  - pandas
+  - dask
+  - shapely
+  - h5py
+  - netcdf4
+  - earthengine-api
+  - earthaccess
+  - ipython

@@ -1,0 +1,14 @@
+figures/
+literature/
+master-projects/
+models/
+presentations/
+data/interim/
+data/initial/ArcticDEM/
+data/initial/cryoswath/
+data/initial/icesat-2/
+data/initial/RGI/
+data/initial/sentinel-1/
+scripts/pre-bin/
+scripts/10*
+scripts/udem.py
