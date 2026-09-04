@@ -7,5 +7,8 @@ Workflow:
 - Do model training: `training-udem.py` (also uses `udem.py`)
 - Make predictions: `predict-udem.ipynb`(also uses `udem.py` and `validation_tools.py`)
 - Validate U-DEM: `validate-udem.ipynb`(also uses `validation_tools.py`)
+
+
+Application examples:
 - Apply U-DEM to surging glaciers: `surgingglaciers.ipynb`
 - Apply U-DEM to subglacial lakes: `subglacial-lakes.ipynb`
