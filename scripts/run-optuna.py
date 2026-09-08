@@ -4,12 +4,14 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
+from torch.amp import autocast, GradScaler
 import os
 import pickle
 import pandas as pd
 from udem import ImageDataset, UNet
 import argparse
 import gc
+
 
 
 # GLOBALS THAT GET SET AFTER ARGPARSE
@@ -22,7 +24,10 @@ device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
-criterion = nn.MSELoss()
+
+# Change to 
+l1_loss = nn.L1Loss()
+mse_loss = nn.MSELoss()
 
 
     
@@ -40,10 +45,26 @@ def objective(trial):
     dropout_rate = trial.suggest_float("dropout_rate", 0.05, 0.6) if dropout_on else 0.0
 
     lr = trial.suggest_float("lr", 1e-4, 5e-2, log=True)
-    batch_size = trial.suggest_categorical("batch_size", [8, 16, 32, 64, 128])
-    base_filters = trial.suggest_categorical("base_filters", [8, 16, 32, 64, 128])
+    valid_configs = [
+        (4, 8), (4, 16), (4, 32), (4, 64),
+        (8, 8), (8, 16), (8, 32), (8, 64),
+        (16, 8), (16, 16), (16, 32),
+        (32, 8), (32, 16),
+    ]
 
+    config_idx = trial.suggest_int(
+        "config_idx",
+        0,
+        len(valid_configs) - 1
+    )
+
+    batch_size, base_filters = valid_configs[config_idx]
+
+    trial.set_user_attr("batch_size", batch_size)
+    trial.set_user_attr("base_filters", base_filters)
+    
     epochs = trial.suggest_int("epochs", 50, 200, log=False)
+
 
     # ----- Data loaders -----
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -51,7 +72,7 @@ def objective(trial):
 
     # ----- Model -----
     model = UNet(
-        in_channels=3,
+        in_channels=2,
         out_channels=1,
         int_filters=base_filters,
         batchnorm=batchnorm,
@@ -59,10 +80,22 @@ def objective(trial):
     ).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    
+
+    use_amp = device.type in ["cuda", "mps"]
+
+    scaler = GradScaler(
+        enabled=(device.type == "cuda")
+    )
+
+    amp_dtype = (
+        torch.float16 if device.type == "cuda"
+        else torch.bfloat16
+    )
 
 
-    #EPOCHS = epochs  # You can lower during development (e.g., 20)
     best_val_loss = float("inf")
+
 
 
     for epoch in range(epochs):
@@ -72,10 +105,18 @@ def objective(trial):
         for X, y in train_loader:
             X, y = X.to(device), y.to(device)
             optimizer.zero_grad()
-            preds = model(X)
-            loss = criterion(preds, y)
-            loss.backward()
-            optimizer.step()
+            with autocast(device_type=device.type,dtype=amp_dtype,enabled=use_amp):
+                preds = model(X)
+                loss = (0.5 * l1_loss(preds, y)+ 0.5 * mse_loss(preds, y))
+
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
+
 
         # -------- Validation --------
         val_loss = 0.0
@@ -83,8 +124,11 @@ def objective(trial):
         with torch.no_grad():
             for X, y in val_loader:
                 X, y = X.to(device), y.to(device)
-                preds = model(X)
-                val_loss += criterion(preds, y).item() * X.size(0)
+                with autocast(device_type=device.type,dtype=amp_dtype,enabled=use_amp):
+                    preds = model(X)
+                    loss = (0.5 * l1_loss(preds, y)+ 0.5 * mse_loss(preds, y))
+
+                val_loss += loss.item() * X.size(0)
 
         val_loss /= len(val_loader.dataset)
 
@@ -95,28 +139,19 @@ def objective(trial):
         # Pruning
         trial.report(val_loss, epoch)
         if trial.should_prune():
-            # Cleanup before pruning too
-            del model, optimizer, train_loader, val_loader
-            gc.collect()
-            if device.type == "mps":
-                torch.mps.empty_cache()
-            else:
-                torch.cuda.empty_cache()
             raise optuna.TrialPruned()
 
     
     # ======================================================
     #  CLEANUP BLOCK — CRITICAL FOR MPS!
     # ======================================================
-    del model
-    del optimizer
-    del train_loader
-    del val_loader
+    del model, optimizer, train_loader, val_loader, scaler
     gc.collect()
-    if device.type == "mps":
-        torch.mps.empty_cache()
-    else:
+
+    if device.type == "cuda":
         torch.cuda.empty_cache()
+    elif device.type == "mps":
+        torch.mps.empty_cache()
     
     
     return best_val_loss
@@ -151,17 +186,17 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--normalization", type=str,
-        default="raw",
-        help="Normalization type (raw, zscore, etc.)"
+        "--experiment", type=str,
+        default="EXP1",
+        help="Experiment name"
     )
 
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
-    # Build paths based on projectDir + normalization
+    # Build paths based on projectDir + experiment
     # ------------------------------------------------------------------
-    dataDir = os.path.join(args.projectDir, f"data/interim/normalization-{args.normalization}")
+    dataDir = os.path.join(args.projectDir, f"data/interim/{args.experiment}")
 
     # Load datasets
     X_train_hpo = pd.read_pickle(os.path.join(dataDir, "X_train_hpo.pkl"))
@@ -179,7 +214,7 @@ if __name__ == "__main__":
     storage = (
         args.storage
         if args.storage is not None
-        else f"sqlite:///{os.path.join(args.projectDir, f'models/optuna_hpo_{args.normalization}.db')}"
+        else f"sqlite:///{os.path.join(args.projectDir, f'models/optuna_hpo_{args.experiment}.db')}"
     )
 
     # ------------------------------------------------------------------
@@ -187,7 +222,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     study = optuna.create_study(
         direction="minimize",
-        study_name=f"udem_hpo_{args.normalization}",
+        study_name=f"udem_hpo_{args.experiment}",
         storage=storage,
         load_if_exists=True
     )
@@ -198,14 +233,19 @@ if __name__ == "__main__":
         n_jobs=args.n_jobs
     )
 
+
     print("Best trial:", study.best_trial.params)
 
-    # Output pickle file depends on normalization
+    # Output pickle file depends on experiment
     out_pkl = os.path.join(
         args.projectDir,
-        f"models/best-hpo-{args.normalization}.pkl"
+        f"models/best-hpo-{args.experiment}.pkl"
     )
 
+    best_params = study.best_trial.params.copy()
+    best_params["batch_size"] = study.best_trial.user_attrs["batch_size"]
+    best_params["base_filters"] = study.best_trial.user_attrs["base_filters"]
+
     with open(out_pkl, "wb") as f:
-        pickle.dump(study.best_trial.params, f)
+        pickle.dump(best_params, f)
 

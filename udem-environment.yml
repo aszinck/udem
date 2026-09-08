@@ -1,0 +1,28 @@
+name: udem-environment
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - earthaccess
+  - pandas
+  - scikit-learn
+  - rasterio
+  - shapely
+  - pytorch
+  - xarray
+  - earthengine-api
+  - scipy
+  - rioxarray
+  - dask
+  - matplotlib
+  - numpy
+  - optuna
+  - h5py
+  - geopandas
+  - ipykernel
+  - netcdf4
+  - ipywidgets
+  - seaborn
+  - ffmpeg
+prefix: /opt/miniconda3/envs/elevation-canada

@@ -22,15 +22,13 @@ class ImageDataset(Dataset):
         # --- Inputs ---
         s1 = self.df_X.iloc[idx]["s1"]   # numpy array (H, W)
         cs = self.df_X.iloc[idx]["cs"]   # numpy array (H, W)
-        mask = self.df_X.iloc[idx]["mask_list"]   # numpy array (H, W)
 
         # Convert to tensor
         s1 = torch.tensor(s1, dtype=torch.float32)
         cs = torch.tensor(cs, dtype=torch.float32)
-        mask = torch.tensor(mask, dtype=torch.float32)
 
         # Stack into shape (2, H, W)
-        X = torch.stack([s1, cs, mask], dim=0)
+        X = torch.stack([s1, cs], dim=0)
 
         # --- Target ---
         y = self.df_y.iloc[idx]["adem"]     # numpy array (H, W) or (1, H, W)
@@ -40,7 +38,31 @@ class ImageDataset(Dataset):
             y = y.unsqueeze(0)           # shape -> (1, H, W)
 
         return X, y
-    
+
+# ========================================================
+# =============    LOAD PREDICTION DATA    ===============
+# ========================================================
+
+class PredictionDataset(Dataset):
+    def __init__(self, df_X):
+        self.df_X = df_X
+
+    def __len__(self):
+        return len(self.df_X)
+
+    def __getitem__(self, idx):
+        # --- Inputs ---
+        s1 = self.df_X.iloc[idx]["s1"]   # numpy array (H, W)
+        cs = self.df_X.iloc[idx]["cs"]   # numpy array (H, W)
+
+        # Convert to tensor
+        s1 = torch.tensor(s1, dtype=torch.float32)
+        cs = torch.tensor(cs, dtype=torch.float32)
+
+        # Stack into shape (2, H, W)
+        X = torch.stack([s1, cs], dim=0)
+
+        return X
 
 # ========================================================
 # =============    CONV BLOCK    ===============
@@ -157,7 +179,7 @@ class UNet(nn.Module):
         self.att1 = AttentionBlock(uf, df, uf)
         self.conv1 = ConvBlock(uf+df, uf, batchnorm, dropout)
 
-        self.final_conv = nn.Conv2d(uf, out_channels, 1)
+        self.final_conv = nn.Conv2d(uf, out_channels, 1) 
 
     def forward(self, x):
         s1, p1 = self.e1(x)

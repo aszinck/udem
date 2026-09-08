@@ -27,9 +27,6 @@ project_crs = args.project_crs
 n_threads = args.n_threads
 projectDir = args.projectDir
 
-#region_id = "05"
-#project_crs = "EPSG:3413"
-#n_threads = 8  # number of parallel downloads
 downloader = "aria2c"  # or "wget"
 
 #projectDir = "/Users/rfk471/Dropbox/elevation-canada"
@@ -127,9 +124,15 @@ def process_file(file_url):
 if __name__ == "__main__":
     print("🔹 Loading RGI and ArcticDEM index...")
 
-    rgi = gpd.read_file(
-        f"{projectDir}/data/initial/RGI/RGI2000-v7.0-C-03_arctic_canada_north/RGI2000-v7.0-C-03_arctic_canada_north.shp"
-    ).to_crs(project_crs)
+    region_ids_north = ["01","02","03","04","05","06","07"]
+    region_ids_south = ["08","09","10","11","12","13","14","15"]
+
+    if region_id in region_ids_north:
+        rgi_file = f"{projectDir}/data/initial/RGI/RGI2000-v7.0-C-03_arctic_canada_north/RGI2000-v7.0-C-03_arctic_canada_north.shp"
+    elif region_id in region_ids_south:
+        rgi_file = f"{projectDir}/data/initial/RGI/RGI2000-v7.0-C-04_arctic_canada_south/RGI2000-v7.0-C-04_arctic_canada_south.shp"
+
+    rgi = gpd.read_file(rgi_file).to_crs(project_crs)
 
     region = gpd.read_file(f"{projectDir}/data/initial/regions/region-{region_id}.shp")
     rgi_region = gpd.clip(rgi, region)
